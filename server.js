@@ -3,6 +3,7 @@ var axios = require("axios");
 var logger = require("morgan");
 var mongoose = require("mongoose");
 var express = require("express");
+var path = require("path");
 
 var PORT = 3000;
 var db = require("./models");
@@ -13,20 +14,26 @@ app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
 app.use(express.static("public"));
 
-mongoose.connect("mongodb://localhost/newsApp", { useNewUrlParser: true });
+// If deployed, use the deployed database. Otherwise use the local mongoHeadlines database
+var MONGODB_URI = process.env.MONGODB_URI || "mongodb://localhost/mongoHeadlines";
+
+mongoose.connect(MONGODB_URI);
+// mongoose.connect("mongodb://localhost/nintendoNewsApp", { useNewUrlParser: true });
 
 
 app.get("/scrape", function (req, res) {
 
-    axios.get("https://www.reddit.com/r/splatoon/").then(function (response) {
+    axios.get("http://www.nintendolife.com/news").then(function (response) {
+
         var $ = cheerio.load(response.data);
 
-        $("span.y8HYJ-y_lTUHkQIc1mdCq").each(function (i, element) {
+        $("li.item-medium").each(function (i, element) {
 
             var results = {};
 
-            results.link = "https://www.reddit.com" + $(element).children().attr("href");
-            results.title = $(element).children().find("h2").text();
+            results.title = $(element).children().find("p.heading").text();
+            results.link = "http://www.nintendolife.com/" + $(element).children().find("p.heading>a").attr("href");
+            results.description = $(element).children().find("p.description").text();
 
 
             db.News.create(results).then(function (dbNews) {
@@ -36,28 +43,49 @@ app.get("/scrape", function (req, res) {
                 console.log(err);
             });
 
-            // var link = $(element).children().attr("href");
-            // var title = $(element).children().find("h2").text();
-
-            // results.push({
-            //     title: title,
-            //     link: "https://www.reddit.com" + link
-            // });
-
 
         })
-        console.log("Scrape Complete!");
+
 
     })
 
-
+    console.log("Scrape Complete!");
+    res.redirect("/");
 
 })
 
 app.get("/news", function (req, res) {
 
-    db.News.find({}, function (err, data) {
+    db.News.find({ saved: false }, function (err, data) {
         res.json(data)
+    })
+
+})
+
+app.get("/saved", function (req, res) {
+    res.sendFile(path.join(__dirname, "public/saved.html"));
+})
+
+app.get("/savednews", function (req, res) {
+    db.News.find({ saved: true }, function (err, data) {
+        res.json(data)
+    })
+})
+
+app.get("/saved/:id", function (req, res) {
+    chosenId = req.params.id
+
+    db.News.findByIdAndUpdate({ _id: chosenId }, { saved: true }).then(function (dbNews) {
+        res.redirect(`/`);
+    })
+
+})
+
+app.get("/unsaved/:id", function (req, res) {
+    chosenId = req.params.id
+
+    db.News.findByIdAndUpdate({ _id: chosenId }, { saved: false }).then(function (dbNews) {
+
     })
 
 })
@@ -65,7 +93,7 @@ app.get("/news", function (req, res) {
 app.get("/news/:id", function (req, res) {
     chosenId = req.params.id
     db.News.findById(chosenId).populate("note").then(function (dbNews) {
-        res.json(dbNews)
+
     })
 
 })
@@ -85,6 +113,14 @@ app.post("/news/:id", function (req, res) {
 
 })
 
+app.get("/deleted/:id", function (req, res) {
+    chosenId = req.params.id
+
+    db.Notes.findOneAndRemove({ _id: chosenId }, function (err, data) {
+        if (err) throw err;
+        res.json(data);
+    })
+})
 
 
 app.listen(PORT, function () {
